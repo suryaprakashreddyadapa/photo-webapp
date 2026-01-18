@@ -1,0 +1,172 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with pgvector
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: photovault-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-photovault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-photovault_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-photovault}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-photovault}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - photovault-network
+
+  # Redis for Celery broker and caching
+  redis:
+    image: redis:7-alpine
+    container_name: photovault-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - photovault-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: photovault-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-photovault}:${POSTGRES_PASSWORD:-photovault_secret}@db:5432/${POSTGRES_DB:-photovault}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-noreply@photovault.local}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - NAS_MOUNT_PATH=/nas
+      - MEDIA_PATH=/media
+      - THUMBNAIL_PATH=/thumbnails
+      - FACE_RECOGNITION_ENABLED=${FACE_RECOGNITION_ENABLED:-true}
+      - CLIP_ENABLED=${CLIP_ENABLED:-true}
+      - YOLO_ENABLED=${YOLO_ENABLED:-true}
+      - FIRST_ADMIN_EMAIL=${FIRST_ADMIN_EMAIL:-admin@photovault.local}
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-admin123}
+    volumes:
+      - ${NAS_PATH:-./data/nas}:/nas:ro
+      - media_data:/media
+      - thumbnail_data:/thumbnails
+      - model_cache:/root/.cache
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - photovault-network
+
+  # Celery Worker for background tasks
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: photovault-worker
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-photovault}:${POSTGRES_PASSWORD:-photovault_secret}@db:5432/${POSTGRES_DB:-photovault}
+      - REDIS_URL=redis://redis:6379/0
+      - NAS_MOUNT_PATH=/nas
+      - MEDIA_PATH=/media
+      - THUMBNAIL_PATH=/thumbnails
+      - FACE_RECOGNITION_ENABLED=${FACE_RECOGNITION_ENABLED:-true}
+      - CLIP_ENABLED=${CLIP_ENABLED:-true}
+      - YOLO_ENABLED=${YOLO_ENABLED:-true}
+    volumes:
+      - ${NAS_PATH:-./data/nas}:/nas:ro
+      - media_data:/media
+      - thumbnail_data:/thumbnails
+      - model_cache:/root/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - photovault-network
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+
+  # Celery Beat for scheduled tasks
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: photovault-beat
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-photovault}:${POSTGRES_PASSWORD:-photovault_secret}@db:5432/${POSTGRES_DB:-photovault}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - photovault-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+    container_name: photovault-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - photovault-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
+  thumbnail_data:
+  model_cache:
+
+networks:
+  photovault-network:
+    driver: bridge

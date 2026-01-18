@@ -1,0 +1,58 @@
+# FastAPI and Web
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic[email]==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+alembic==1.13.1
+pgvector==0.2.4
+psycopg2-binary==2.9.9
+
+# Redis and Task Queue
+redis==5.0.1
+celery==5.3.6
+flower==2.0.1
+
+# AI/ML Libraries
+torch==2.1.2
+torchvision==0.16.2
+transformers==4.36.2
+sentence-transformers==2.2.2
+open-clip-torch==2.24.0
+dlib==19.24.2
+face-recognition==1.3.0
+ultralytics==8.1.0
+numpy==1.26.3
+scipy==1.12.0
+scikit-learn==1.4.0
+Pillow==10.2.0
+opencv-python-headless==4.9.0.80
+
+# NAS/SMB
+smbprotocol==1.12.0
+
+# Media Processing
+pillow-heif==0.14.0
+rawpy==0.19.1
+imageio==2.33.1
+ffmpeg-python==0.2.0
+exifread==3.0.0
+python-magic==0.4.27
+
+# Email
+aiosmtplib==3.0.1
+emails==0.6
+
+# Utilities
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.26.0
+tenacity==8.2.3
+structlog==24.1.0
+imagehash==4.3.1

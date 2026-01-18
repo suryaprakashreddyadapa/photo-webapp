@@ -1,0 +1,73 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+pnpm-lock.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/
+
+# Data directories
+data/
+*.db
+*.sqlite
+
+# AI Models (large files - download on build)
+*.pt
+*.pth
+*.onnx
+*.bin
+*.dat
+*.bz2
+
+# Media cache
+thumbnails/
+media_cache/
+uploads/
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Build artifacts
+build/
+*.egg-info/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

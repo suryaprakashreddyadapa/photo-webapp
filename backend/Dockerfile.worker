@@ -1,0 +1,63 @@
+# Worker Dockerfile - Optimized for AI processing
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies including dlib requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libpq-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libopenblas-dev \
+    liblapack-dev \
+    ffmpeg \
+    libmagic1 \
+    cifs-utils \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Download dlib face recognition model
+RUN mkdir -p /root/.cache/dlib && \
+    wget -q http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2 -O /tmp/shape_predictor.bz2 && \
+    bunzip2 /tmp/shape_predictor.bz2 && \
+    mv /tmp/shape_predictor_68_face_landmarks.dat /root/.cache/dlib/ && \
+    wget -q http://dlib.net/files/dlib_face_recognition_resnet_model_v1.dat.bz2 -O /tmp/face_rec.bz2 && \
+    bunzip2 /tmp/face_rec.bz2 && \
+    mv /tmp/dlib_face_recognition_resnet_model_v1.dat /root/.cache/dlib/
+
+# Download YOLO model
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+# Pre-download CLIP model
+RUN python -c "import clip; clip.load('ViT-B/32', device='cpu')"
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /media /thumbnails /nas
+
+# Run as non-root user for security
+RUN useradd -m -u 1000 worker
+RUN chown -R worker:worker /app /media /thumbnails
+USER worker
+
+# Default command (can be overridden)
+CMD ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]

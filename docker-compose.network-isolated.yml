@@ -1,0 +1,152 @@
+version: '3.8'
+
+# PhotoVault - Complete Network Isolation Configuration
+# No internet access, all ports bound to localhost only
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: photovault-frontend
+    ports:
+      - "127.0.0.1:3000:80"  # Localhost only - no external access
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://127.0.0.1:8000
+    networks:
+      - photovault-internal
+    dns: []  # Disable DNS resolution
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: photovault-backend
+    ports:
+      - "127.0.0.1:8000:8000"  # Localhost only
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-photovault}:${POSTGRES_PASSWORD:-photovault_secret}@db:5432/${POSTGRES_DB:-photovault}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - FIRST_ADMIN_EMAIL=${FIRST_ADMIN_EMAIL:-admin@photovault.local}
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-admin123}
+      - NAS_PATH=/nas
+      - THUMBNAILS_PATH=/data/thumbnails
+      - FACE_RECOGNITION_ENABLED=${FACE_RECOGNITION_ENABLED:-true}
+      - CLIP_ENABLED=${CLIP_ENABLED:-true}
+      - YOLO_ENABLED=${YOLO_ENABLED:-true}
+      - NETWORK_ISOLATION=true
+      - DISABLE_TELEMETRY=true
+    volumes:
+      - ${NAS_PATH:-./data/nas}:/nas:ro
+      - thumbnails:/data/thumbnails
+      - ai_cache:/data/cache
+    depends_on:
+      - db
+      - redis
+    networks:
+      - photovault-internal
+    dns: []  # Disable DNS resolution
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: photovault-worker
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-photovault}:${POSTGRES_PASSWORD:-photovault_secret}@db:5432/${POSTGRES_DB:-photovault}
+      - REDIS_URL=redis://redis:6379/0
+      - NAS_PATH=/nas
+      - THUMBNAILS_PATH=/data/thumbnails
+      - FACE_RECOGNITION_ENABLED=${FACE_RECOGNITION_ENABLED:-true}
+      - CLIP_ENABLED=${CLIP_ENABLED:-true}
+      - YOLO_ENABLED=${YOLO_ENABLED:-true}
+      - NETWORK_ISOLATION=true
+    volumes:
+      - ${NAS_PATH:-./data/nas}:/nas:ro
+      - thumbnails:/data/thumbnails
+      - ai_cache:/data/cache
+      - ai_models:/app/models
+    depends_on:
+      - db
+      - redis
+    networks:
+      - photovault-internal
+    dns: []  # Disable DNS resolution - no internet access
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: photovault-beat
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-photovault}:${POSTGRES_PASSWORD:-photovault_secret}@db:5432/${POSTGRES_DB:-photovault}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    networks:
+      - photovault-internal
+    dns: []
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: photovault-db
+    # No port exposure - internal only
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-photovault}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-photovault_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-photovault}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - photovault-internal
+    dns: []
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-photovault}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: photovault-redis
+    # No port exposure - internal only
+    volumes:
+      - redis_data:/data
+    networks:
+      - photovault-internal
+    dns: []
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  photovault-internal:
+    driver: bridge
+    internal: true  # No external network access
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres_data:
+  redis_data:
+  thumbnails:
+  ai_cache:
+  ai_models:
